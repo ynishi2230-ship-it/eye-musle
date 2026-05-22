@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ドラッグ追従・回旋連動・麻痺筋自動判定 両眼3Dモデル</title>
+  <style>
+    :root{ --bg:#08111f; --panel:#101b2eeb; --panel2:#0b1526d9; --text:#eaf2ff; --muted:#9eb2d0; --accent:#68d8ff; --line:#284365; }
+    *{ box-sizing:border-box; }
+    body{ margin:0; overflow:hidden; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",Meiryo,sans-serif; background:radial-gradient(circle at 50% 20%, #152b47 0%, #08111f 52%, #040915 100%); color:var(--text); }
+    #viewport{ position:fixed; inset:0; }
+    canvas{ display:block; }
+    #labels{ position:fixed; inset:0; pointer-events:none; overflow:hidden; }
+    .label{ position:absolute; transform:translate(-50%,-50%); white-space:nowrap; padding:3px 7px; border-radius:999px; font-size:11px; color:#f6fbff; background:rgba(10,18,32,.72); border:1px solid rgba(134,190,255,.46); box-shadow:0 4px 14px rgba(0,0,0,.25); }
+    .label.small{ font-size:10px; opacity:.9; }
+    .label.axis{ background:rgba(30,38,56,.72); border-color:rgba(255,255,255,.22); color:#d6e5ff; }
+    .label.pulley{ background:rgba(74,47,10,.78); border-color:rgba(255,211,122,.55); color:#fff4cc; }
+    .label.hidden{ opacity:0; }
+    #ui{ position:fixed; top:14px; right:14px; width:min(560px, calc(100vw - 28px)); max-height:calc(100vh - 28px); overflow:auto; background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid #2a456f; border-radius:20px; padding:14px; box-shadow:0 18px 50px rgba(0,0,0,.38); backdrop-filter:blur(10px); transition:opacity .18s ease, background .18s ease, box-shadow .18s ease, transform .22s ease, width .22s ease, padding .22s ease; }
+    #ui.dragFade{ opacity:.34; background:linear-gradient(180deg, rgba(16,27,46,.45), rgba(11,21,38,.32)); box-shadow:0 8px 22px rgba(0,0,0,.18); }
+    #ui.dragShift:not(.collapsed){ transform:translateX(96px); }
+    #uiHeader{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:10px; }
+    #uiHeaderMain{ min-width:0; flex:1; }
+    #uiToggle{ flex:0 0 auto; }
+    #ui.collapsed{ width:66px; padding:10px 8px; overflow:hidden; }
+    #ui.collapsed #uiHeader{ margin-bottom:0; }
+    #ui.collapsed #uiHeaderMain{ display:none; }
+    #ui.collapsed .uiBody{ display:none; }
+    #ui.collapsed #uiToggle{ width:100%; padding:10px 0; border-radius:14px; }
+    h1{ margin:2px 0 6px; font-size:18px; }
+    .subtitle{ margin:0 0 12px; line-height:1.55; color:var(--muted); font-size:12px; }
+    .card{ border:1px solid var(--line); background:rgba(255,255,255,.045); border-radius:16px; padding:12px; margin:10px 0; }
+    .card h2{ margin:0 0 9px; font-size:14px; color:#d9e8ff; }
+    .row{ margin:10px 0; }
+    .row label{ display:flex; justify-content:space-between; gap:12px; font-size:12px; color:#dce9ff; margin-bottom:6px; }
+    .value{ color:var(--accent); font-variant-numeric:tabular-nums; min-width:56px; text-align:right; }
+    input[type="range"]{ width:100%; accent-color:#68d8ff; }
+    select, button{ border:1px solid #365b89; background:#132744; color:#eaf2ff; padding:7px 10px; border-radius:999px; font-size:12px; }
+    button{ cursor:pointer; transition:.15s transform,.15s background,.15s border-color; }
+    button:hover{ transform:translateY(-1px); background:#1a3458; border-color:#68d8ff; }
+    button.primary{ background:#0f5f83; border-color:#68d8ff; }
+    .btns{ display:flex; flex-wrap:wrap; gap:7px; }
+    .toggles,.dual,.legend,.statusGrid{ display:grid; gap:8px; grid-template-columns:1fr 1fr; }
+    .triple{ display:grid; gap:8px; grid-template-columns:1fr 1fr 1fr; }
+    .toggle{ display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:12px; padding:8px; font-size:12px; background:rgba(0,0,0,.12); }
+    .toggle input{ accent-color:#68d8ff; }
+    .miniTitle{ margin:0 0 4px; color:#bfe0ff; font-size:12px; }
+    .note{ font-size:11px; line-height:1.55; color:#aebfdb; }
+    .legend button{ text-align:left; }
+    .swatch{ width:12px; height:12px; border-radius:50%; display:inline-block; margin-right:6px; vertical-align:-2px; }
+    table{ width:100%; border-collapse:collapse; font-size:11px; }
+    th,td{ border-bottom:1px solid var(--line); padding:5px 4px; text-align:left; }
+    th{ color:#9fc9ff; font-weight:600; }
+    .barWrap{ background:#0b1424; border:1px solid #2a456f; border-radius:999px; overflow:hidden; height:12px; }
+    .bar{ height:100%; width:10%; background:linear-gradient(90deg,#3f7ee9,#68d8ff); }
+    .barLabel{ display:flex; justify-content:space-between; gap:10px; font-size:11px; margin-bottom:3px; color:#dfeaff; }
+    .pill{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; }
+    .contract{ background:rgba(140,250,170,.16); color:#b7ffd0; border:1px solid rgba(140,250,170,.32); }
+    .relax{ background:rgba(255,214,120,.14); color:#ffe8ad; border:1px solid rgba(255,214,120,.28); }
+    .mid{ background:rgba(152,191,255,.14); color:#cfe0ff; border:1px solid rgba(152,191,255,.22); }
+    .paretic{ background:rgba(255,84,108,.16); color:#ffd5dc; border:1px solid rgba(255,84,108,.36); }
+    #hud{ position:fixed; left:14px; bottom:14px; padding:10px 12px; max-width:min(760px, calc(100vw - 28px)); background:rgba(7,14,26,.72); border:1px solid var(--line); border-radius:16px; color:#d8e8ff; font-size:12px; line-height:1.55; backdrop-filter:blur(8px); }
+    .mono{ font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    #touchModePad{ position:fixed; left:14px; top:14px; z-index:20; display:none; gap:8px; padding:8px; border-radius:16px; background:rgba(7,14,26,.72); border:1px solid var(--line); backdrop-filter:blur(8px); box-shadow:0 10px 24px rgba(0,0,0,.22); }
+    #touchModePad.show{ display:flex; }
+    #touchModePad button.active{ background:#0f5f83; border-color:#68d8ff; }
+    @media(max-width:960px){ #ui{ left:10px; right:10px; top:10px; width:auto; max-height:58vh; } #ui.dragShift:not(.collapsed){ transform:translateX(28px); } .toggles,.dual,.legend,.statusGrid,.triple{ grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div id="viewport"></div>
+  <div id="labels"></div>
+
+  <div id="touchModePad" aria-label="タブレット操作モード">
+    <button id="touchTargetBtn" type="button">🎯 固視目標</button>
+    <button id="touchViewBtn" type="button">🖐 視点操作</button>
+  </div>
+
+  <aside id="ui">
+    <div id="uiHeader">
+      <div id="uiHeaderMain">
+        <h1>ドラッグ追従・回旋連動・麻痺筋自動判定モデル</h1>
+        <p class="subtitle">左ドラッグで注視目標を動かすと、両眼が追従します。クリック/ドラッグ位置から<strong>水平・垂直だけでなく回旋</strong>も簡易的に連動させています。さらに、注視目標と実際の眼位の差から<strong>麻痺筋の疑いを自動判定</strong>し、3D上と表で赤く表示します。</p>
+      </div>
+      <button id="uiToggle" type="button" aria-expanded="true">◀</button>
+    </div>
+    <div class="uiBody">
+
+    <section class="card">
+      <h2>🎯 眼球操作</h2>
+      <div class="btns">
+        <button class="primary" id="resetTarget">正面位に戻す</button>
+        <button data-pose="right">右方視</button>
+        <button data-pose="left">左方視</button>
+        <button data-pose="up">上方視</button>
+        <button data-pose="down">下方視</button>
+        <button data-pose="near">輻湊</button>
+      </div>
+      <div class="row"><label>右眼 水平 / 垂直 / 回旋 <span class="value" id="rPoseText">0° / 0° / 0°</span></label><input id="rhSlider" type="range" min="-45" max="45" step="1" value="0"></div>
+      <div class="row"><label>右眼 垂直調整 <span class="value" id="rvVal">0°</span></label><input id="rvSlider" type="range" min="-35" max="35" step="1" value="0"></div>
+      <div class="row"><label>左眼 水平 / 垂直 / 回旋 <span class="value" id="lPoseText">0° / 0° / 0°</span></label><input id="lhSlider" type="range" min="-45" max="45" step="1" value="0"></div>
+      <div class="row"><label>左眼 垂直調整 <span class="value" id="lvVal">0°</span></label><input id="lvSlider" type="range" min="-35" max="35" step="1" value="0"></div>
+      <p class="note">左ドラッグ：注視目標移動　/　右ドラッグ：視点回転　/　ホイール：ズーム</p>
+    </section>
+
+    <section class="card">
+      <h2>🩺 麻痺プリセット / 自動判定</h2>
+      <div class="triple">
+        <div>
+          <p class="miniTitle">病態プリセット</p>
+          <select id="scenarioSelect">
+            <option value="normal">正常</option>
+            <option value="right6">右外転神経麻痺（右LR麻痺）</option>
+            <option value="left6">左外転神経麻痺（左LR麻痺）</option>
+            <option value="rightSO">右上斜筋麻痺</option>
+            <option value="leftSO">左上斜筋麻痺</option>
+            <option value="rightMR">右内直筋麻痺</option>
+            <option value="leftMR">左内直筋麻痺</option>
+          </select>
+        </div>
+        <div>
+          <p class="miniTitle">自動判定 右眼</p>
+          <div id="detR" class="note mono">麻痺筋疑いなし</div>
+        </div>
+        <div>
+          <p class="miniTitle">自動判定 左眼</p>
+          <div id="detL" class="note mono">麻痺筋疑いなし</div>
+        </div>
+      </div>
+      <p id="scenarioNote" class="note">正常モードです。</p>
+    </section>
+
+    <section class="card">
+      <h2>✨ 筋強調</h2>
+      <div class="legend" id="muscleButtons">
+        <button data-muscle="MR"><span class="swatch" style="background:#ff5b70"></span>MR を点滅</button>
+        <button data-muscle="LR"><span class="swatch" style="background:#47b7ff"></span>LR を点滅</button>
+        <button data-muscle="SR"><span class="swatch" style="background:#87f59e"></span>SR を点滅</button>
+        <button data-muscle="IR"><span class="swatch" style="background:#ffd15e"></span>IR を点滅</button>
+        <button data-muscle="SO"><span class="swatch" style="background:#c792ff"></span>SO を点滅</button>
+        <button data-muscle="IO"><span class="swatch" style="background:#ff9b5a"></span>IO を点滅</button>
+      </div>
+      <div class="btns" style="margin-top:8px"><button id="showAll">全筋表示</button></div>
+    </section>
+
+    <section class="card">
+      <h2>👁️ 表示</h2>
+      <div class="toggles">
+        <label class="toggle"><input id="showMuscles" type="checkbox" checked> 外眼筋</label>
+        <label class="toggle"><input id="showPulleys" type="checkbox" checked> Pulley ring</label>
+        <label class="toggle"><input id="showInsertions" type="checkbox" checked> 付着部・Tillaux螺旋</label>
+        <label class="toggle"><input id="showOrbit" type="checkbox" checked> 眼窩フレーム</label>
+        <label class="toggle"><input id="showAxes" type="checkbox" checked> Fick軸</label>
+        <label class="toggle"><input id="showLabels" type="checkbox" checked> ラベル</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>📊 筋活動バー</h2>
+      <div class="dual" id="activityBars"></div>
+    </section>
+
+    <section class="card">
+      <h2>🧾 収縮・弛緩・麻痺疑い</h2>
+      <div class="statusGrid">
+        <div>
+          <p class="miniTitle">右眼</p>
+          <table><thead><tr><th>筋</th><th>活動</th><th>状態</th></tr></thead><tbody id="rStatus"></tbody></table>
+        </div>
+        <div>
+          <p class="miniTitle">左眼</p>
+          <table><thead><tr><th>筋</th><th>活動</th><th>状態</th></tr></thead><tbody id="lStatus"></tbody></table>
+        </div>
+      </div>
+      <p id="explain" class="note">ここに簡単な説明を表示します。</p>
+    </section>
+    </div>
+  </aside>
+
+  <div id="hud">
+    <b>PC：</b>左ドラッグ＝目標移動、右ドラッグ＝視点回転、ホイール＝拡大縮小<br>
+    <b>iPad/タブレット：</b>左上の <b>🎯 固視目標</b> と <b>🖐 視点操作</b> を切り替えて使います。<br>
+    <b>回旋：</b>注視方向に応じて簡易的に自動付加　/　<b>赤表示：</b>麻痺筋の自動判定候補
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script>
+    const viewport = document.getElementById('viewport');
+    const labelLayer = document.getElementById('labels');
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x08111f, 80, 180);
+
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, -84, 56);
+
+    const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    viewport.appendChild(renderer.domElement);
+    renderer.domElement.style.touchAction = 'none';
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.06; controls.target.set(0,0,0); controls.minDistance = 30; controls.maxDistance = 180;
+    controls.mouseButtons.LEFT = null;
+    controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+    controls.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
+
+    scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x0b1020, 0.78));
+    const key = new THREE.DirectionalLight(0xffffff, 1.28); key.position.set(30, -32, 46); scene.add(key);
+    const rim = new THREE.DirectionalLight(0x84c5ff, 0.72); rim.position.set(-40, 28, -22); scene.add(rim);
+
+    const world = new THREE.Group(); scene.add(world);
+    const deg = THREE.MathUtils.degToRad, radToDeg = THREE.MathUtils.radToDeg, clamp = THREE.MathUtils.clamp;
+    const R = 12, limbusZ = 10.05, limbusRadius = Math.sqrt(R*R - limbusZ*limbusZ), thetaLimbus = Math.acos(limbusZ / R);
+    const colorMap = { MR:0xff5b70, LR:0x47b7ff, SR:0x87f59e, IR:0xffd15e, SO:0xc792ff, IO:0xff9b5a };
+    const muscles = ['MR','LR','SR','IR','SO','IO'];
+    const labelItems = [];
+    let blinkState = { muscle:null, until:0 };
+
+    function makeLine(points, mat){ return new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), mat); }
+    function makeTube(points, radius, color, opacity=1){ const curve = new THREE.CatmullRomCurve3(points); const mat = new THREE.MeshStandardMaterial({ color, roughness:.48, metalness:.04, transparent:true, opacity, emissive:0x000000, emissiveIntensity:0 }); const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve,72,radius,14,false), mat); mesh.userData.baseRadius = radius; return mesh; }
+    function updateTube(mesh, points, radius){ const old = mesh.geometry; mesh.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points),72,radius,14,false); old.dispose(); }
+    function createTextLabel(text, className=''){ const el = document.createElement('div'); el.className = 'label ' + className; el.textContent = text; labelLayer.appendChild(el); return el; }
+    function addLabel(text, getter, className=''){ const el = createTextLabel(text, className); labelItems.push({ el, getter }); }
+    function addGlowSphere(parent,pos,radius,color,opacity=.95){ const m = new THREE.Mesh(new THREE.SphereGeometry(radius,18,12), new THREE.MeshBasicMaterial({ color, transparent:true, opacity })); m.position.copy(pos); parent.add(m); return m; }
+    function projectToScreen(pos){ const p = pos.clone().project(camera); return { x:(p.x*.5+.5)*window.innerWidth, y:(-p.y*.5+.5)*window.innerHeight, z:p.z }; }
+    function localSphere(thetaDeg, phiDeg, radius=R){ const th=deg(thetaDeg), ph=deg(phiDeg); return new THREE.Vector3(radius*Math.sin(th)*Math.cos(ph), radius*Math.sin(th)*Math.sin(ph), radius*Math.cos(th)); }
+    function localInsertion(phiDeg, dist){ const theta = thetaLimbus + (dist / R), ph = deg(phiDeg); return new THREE.Vector3(R*Math.sin(theta)*Math.cos(ph), R*Math.sin(theta)*Math.sin(ph), R*Math.cos(theta)); }
+    function orientTorusToDirection(torus, direction){ const q = new THREE.Quaternion(); q.setFromUnitVectors(new THREE.Vector3(0,0,1), direction.clone().normalize()); torus.quaternion.copy(q); }
+
+    const baseDefs = {
+      MR: { name:'内直筋 MR', color:colorMap.MR, phi:180, distance:5.5, width:7.0, origin:new THREE.Vector3(-1.7,0,-36), pulley:new THREE.Vector3(-18.5,0,-5.6), labelOffset:new THREE.Vector3(-4,0,1), baseRadius:.55 },
+      LR: { name:'外直筋 LR', color:colorMap.LR, phi:0, distance:6.9, width:8.0, origin:new THREE.Vector3(1.7,0,-36), pulley:new THREE.Vector3(18.5,0,-5.6), labelOffset:new THREE.Vector3(4,0,1), baseRadius:.55 },
+      SR: { name:'上直筋 SR', color:colorMap.SR, phi:90, distance:7.7, width:7.5, origin:new THREE.Vector3(0,1.7,-36), pulley:new THREE.Vector3(0,16.7,-6.2), labelOffset:new THREE.Vector3(0,3.5,1), baseRadius:.55 },
+      IR: { name:'下直筋 IR', color:colorMap.IR, phi:270, distance:6.5, width:7.5, origin:new THREE.Vector3(0,-1.7,-36), pulley:new THREE.Vector3(0,-16.6,-6.1), labelOffset:new THREE.Vector3(0,-3.5,1), baseRadius:.55 },
+      SO: { name:'上斜筋 SO', color:colorMap.SO, oblique:true, origin:new THREE.Vector3(-7.8,15.4,-34), trochlea:new THREE.Vector3(-15.5,16.8,9.2), pulley:new THREE.Vector3(-15.5,16.8,9.2), labelOffset:new THREE.Vector3(-2,2,0), baseRadius:.42 },
+      IO: { name:'下斜筋 IO', color:colorMap.IO, oblique:true, origin:new THREE.Vector3(-13.8,-14.7,10.0), pulley:new THREE.Vector3(-3.5,-15.7,2.0), labelOffset:new THREE.Vector3(2,-2,0), baseRadius:.42 }
+    };
+
+    function cloneDefs(sideSign){
+      const defs = {};
+      Object.keys(baseDefs).forEach(k => {
+        const d = baseDefs[k];
+        defs[k] = { ...d, origin:d.origin.clone(), pulley:d.pulley.clone(), labelOffset:d.labelOffset.clone(), trochlea:d.trochlea ? d.trochlea.clone() : null };
+        if(sideSign === -1){ defs[k].origin.x *= -1; defs[k].pulley.x *= -1; defs[k].labelOffset.x *= -1; if(defs[k].trochlea) defs[k].trochlea.x *= -1; }
+      });
+      return defs;
+    }
+
+    function createEye(side, centerX){
+      const root = new THREE.Group(); root.position.x = centerX; world.add(root);
+      const globeGroup = new THREE.Group(), muscleGroup = new THREE.Group(), pulleyGroup = new THREE.Group(), insertionGroup = new THREE.Group(), orbitGroup = new THREE.Group(), axisGroup = new THREE.Group();
+      root.add(orbitGroup, muscleGroup, pulleyGroup, axisGroup, globeGroup); globeGroup.add(insertionGroup);
+      const defs = cloneDefs(side === 'R' ? 1 : -1);
+      Object.keys(defs).forEach(k => { if(!defs[k].oblique){ defs[k].insertionLocal = localInsertion(defs[k].phi, defs[k].distance); if(side === 'L') defs[k].insertionLocal.x *= -1; } });
+      defs.SO.insertionLocal = localSphere(116,43,R+.05); defs.IO.insertionLocal = localSphere(108,316,R+.05); if(side==='L'){ defs.SO.insertionLocal.x*=-1; defs.IO.insertionLocal.x*=-1; }
+      const muscleObjects={}, bandObjects={}, glowObjects={};
+      let currentPose={ h:0,v:0,t:0 }, currentActivity={ MR:.15, LR:.15, SR:.12, IR:.12, SO:.12, IO:.12 }, highlight='ALL', blinkCode=null, blinkFactor=1, paretic=null;
+
+      const globe = new THREE.Mesh(new THREE.SphereGeometry(R,96,64), new THREE.MeshPhysicalMaterial({ color:0xeef5ff, roughness:.52, metalness:0.02, transparent:true, opacity:.62, transmission:0.08, clearcoat:.35 })); globeGroup.add(globe);
+      const cornea = new THREE.Mesh(new THREE.SphereGeometry(4.95,64,32), new THREE.MeshPhysicalMaterial({ color:0xaedfff, transparent:true, opacity:.34, roughness:.08, metalness:0, transmission:.45, clearcoat:1 })); cornea.scale.set(1.12,1.12,.52); cornea.position.z=R+.72; globeGroup.add(cornea);
+      const iris = new THREE.Mesh(new THREE.CircleGeometry(3.45,64), new THREE.MeshStandardMaterial({ color:0x486b95, roughness:.42, metalness:0.05 })); iris.position.z=R+.26; globeGroup.add(iris);
+      const pupil = new THREE.Mesh(new THREE.CircleGeometry(1.16,42), new THREE.MeshBasicMaterial({ color:0x06101d })); pupil.position.z=R+.30; globeGroup.add(pupil);
+      const mark = new THREE.Mesh(new THREE.SphereGeometry(.34,16,10), new THREE.MeshBasicMaterial({ color:0xffffff })); mark.position.set(0,2.7,R+.38); globeGroup.add(mark);
+      const limbus = new THREE.Mesh(new THREE.TorusGeometry(limbusRadius,.045,8,128), new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:.95 })); limbus.position.z=limbusZ; globeGroup.add(limbus);
+      const eq1 = new THREE.Mesh(new THREE.TorusGeometry(R,.025,8,160), new THREE.MeshBasicMaterial({ color:0x6e8fb8, transparent:true, opacity:.35 })); eq1.rotation.x=Math.PI/2; globeGroup.add(eq1); const eq2=eq1.clone(); eq2.rotation.y=Math.PI/2; globeGroup.add(eq2); const eq3=eq1.clone(); eq3.rotation.x=0; globeGroup.add(eq3);
+
+      const tillauxPts = ['MR','IR','LR','SR','MR'].map(k=>defs[k].insertionLocal.clone().multiplyScalar(1.006));
+      const tillaux = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(tillauxPts,false,'catmullrom',.15),90,.08,8,false), new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:.78 })); insertionGroup.add(tillaux);
+      function makeInsertionBand(def){ const theta = thetaLimbus + def.distance / R, widthAngle = THREE.MathUtils.radToDeg(def.width / R), pts=[]; for(let i=0;i<=18;i++){ const f=-0.5+i/18, phi=deg(def.phi + f*widthAngle); const v = new THREE.Vector3((R+.09)*Math.sin(theta)*Math.cos(phi),(R+.09)*Math.sin(theta)*Math.sin(phi),(R+.09)*Math.cos(theta)); if(side==='L') v.x*=-1; pts.push(v); } return makeTube(pts,.17,def.color,.98); }
+      ['MR','LR','SR','IR'].forEach(k=>{ bandObjects[k]=makeInsertionBand(defs[k]); insertionGroup.add(bandObjects[k]); glowObjects[k]=addGlowSphere(insertionGroup, defs[k].insertionLocal.clone().multiplyScalar(1.01), .32, defs[k].color, .95); });
+      glowObjects.SO=addGlowSphere(insertionGroup, defs.SO.insertionLocal.clone().multiplyScalar(1.01), .28, defs.SO.color, .95); glowObjects.IO=addGlowSphere(insertionGroup, defs.IO.insertionLocal.clone().multiplyScalar(1.01), .28, defs.IO.color, .95);
+
+      function axisLine(points, color){ return makeLine(points, new THREE.LineBasicMaterial({ color, transparent:true, opacity:.88 })); }
+      axisGroup.add(axisLine([new THREE.Vector3(-18,0,0), new THREE.Vector3(18,0,0)], 0xff7b8a));
+      axisGroup.add(axisLine([new THREE.Vector3(0,0,-18), new THREE.Vector3(0,0,18)], 0x68d8ff));
+      axisGroup.add(axisLine([new THREE.Vector3(0,-18,0), new THREE.Vector3(0,18,0)], 0x9ff7b2));
+      axisGroup.add(new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0), 19.5, 0xff7b8a, 1.2, .7));
+      axisGroup.add(new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,0), 19.5, 0x68d8ff, 1.2, .7));
+      axisGroup.add(new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), 19.5, 0x9ff7b2, 1.2, .7));
+      if(side==='R'){ addLabel('Fick X', ()=>root.localToWorld(new THREE.Vector3(20.5,0,0)), 'axis'); addLabel('Fick Y', ()=>root.localToWorld(new THREE.Vector3(0,0,20.8)), 'axis'); addLabel('Fick Z', ()=>root.localToWorld(new THREE.Vector3(0,20.5,0)), 'axis'); }
+
+      function addOrbitFrame(){ const rimPts=[]; for(let i=0;i<=96;i++){ const a=Math.PI*2*i/96; rimPts.push(new THREE.Vector3(22*Math.cos(a),19*Math.sin(a),12)); } orbitGroup.add(makeLine(rimPts, new THREE.LineBasicMaterial({ color:0x8fb7ff, transparent:true, opacity:.18 }))); const apex = new THREE.Vector3(0,0,-39); for(let i=0;i<16;i++){ const a=Math.PI*2*i/16; orbitGroup.add(makeLine([apex, new THREE.Vector3(22*Math.cos(a),19*Math.sin(a),12)], new THREE.LineBasicMaterial({ color:0x8fb7ff, transparent:true, opacity:.18 }))); } const ann = new THREE.Mesh(new THREE.TorusGeometry(3.3,.08,8,48), new THREE.MeshBasicMaterial({ color:0x9fbfff, transparent:true, opacity:.42 })); ann.position.z=-36; orbitGroup.add(ann); }
+      addOrbitFrame();
+
+      function getInsertion(def){ return def.insertionLocal.clone().applyQuaternion(globeGroup.quaternion); }
+      function createPulley(def, key){ const dir=def.insertionLocal.clone().sub(def.pulley).normalize(); const torus=new THREE.Mesh(new THREE.TorusGeometry(2.15,.12,12,56), new THREE.MeshStandardMaterial({ color:0xffdf8a, roughness:.35, metalness:.08, transparent:true, opacity:.76 })); torus.position.copy(def.pulley); orientTorusToDirection(torus, dir); pulleyGroup.add(torus); const sleeve=new THREE.Mesh(new THREE.TorusGeometry(5.1,.055,8,80), new THREE.MeshBasicMaterial({ color:0xffd37a, transparent:true, opacity:.12, side:THREE.DoubleSide })); sleeve.position.copy(def.pulley); orientTorusToDirection(sleeve, dir); pulleyGroup.add(sleeve); addLabel((side==='R'?'右':'左') + (key==='SO' ? ' Trochlea' : ' ' + key + ' pulley'), ()=> root.localToWorld(def.pulley.clone()), 'pulley'); return { torus, sleeve }; }
+      function musclePathPoints(key){ const def=defs[key], insertion=getInsertion(def); if(key==='SO') return [def.origin.clone(), def.trochlea.clone(), new THREE.Vector3(side==='R' ? -4 : 4,10,4), insertion]; if(key==='IO') return [def.origin.clone(), def.pulley.clone(), new THREE.Vector3(side==='R' ? 5 : -5,-13,-1), insertion]; const tangent=def.pulley.clone().lerp(insertion,.38); tangent.add(def.labelOffset.clone().multiplyScalar(.16)); return [def.origin.clone(), def.pulley.clone(), tangent, insertion]; }
+      Object.keys(defs).forEach(key=>{ const def=defs[key]; const tube=makeTube(musclePathPoints(key), def.baseRadius, def.color, .92); muscleGroup.add(tube); const tendon=makeTube([def.pulley.clone(), getInsertion(def)], .20, 0xffffff, .38); muscleGroup.add(tendon); const pulley=createPulley(def,key); muscleObjects[key]={ tube, tendon, pulley }; addLabel((side==='R'?'右 ':'左 ')+def.name, ()=> root.localToWorld(musclePathPoints(key)[Math.floor(musclePathPoints(key).length/2)].clone().add(def.labelOffset||new THREE.Vector3()))); addLabel((side==='R'?'右 ':'左 ')+key+'付着部', ()=> root.localToWorld(getInsertion(def).add((def.labelOffset||new THREE.Vector3()).clone().multiplyScalar(.35))), 'small'); });
+      [['MR','SR'],['SR','LR'],['LR','IR'],['IR','MR']].forEach(([a,b])=>{ const l=makeLine([defs[a].pulley, defs[b].pulley], new THREE.LineDashedMaterial({ color:0xffdfa3, transparent:true, opacity:.45, dashSize:.9, gapSize:.55 })); l.computeLineDistances(); pulleyGroup.add(l); });
+      addLabel(side==='R' ? '右眼' : '左眼', ()=> root.localToWorld(new THREE.Vector3(0,-18,16)));
+
+      function updateStyle(){
+        Object.keys(muscleObjects).forEach(key=>{
+          const active=currentActivity[key] || .12, emphasize=(highlight==='ALL'||highlight===key), blinkBoost=(blinkCode===key ? blinkFactor : 1), isParetic=(paretic===key), dim=emphasize ? 1 : .16;
+          const mesh=muscleObjects[key].tube;
+          const baseOp = clamp((0.22 + 0.74*active) * dim * blinkBoost, .08, 1);
+          mesh.material.opacity = isParetic ? 1 : baseOp;
+          mesh.material.color.setHex(isParetic ? 0xff4b63 : colorMap[key]);
+          mesh.material.emissive.setHex(isParetic ? 0xff4455 : colorMap[key]);
+          mesh.material.emissiveIntensity = isParetic ? 0.9 : (emphasize ? (0.10 + 0.36*active) * blinkBoost : 0.01);
+          muscleObjects[key].tendon.material.opacity = isParetic ? .85 : (emphasize ? .44 : .08) * blinkBoost;
+          if(bandObjects[key]){ bandObjects[key].material.opacity = isParetic ? 1 : (emphasize ? .96 : .14) * blinkBoost; bandObjects[key].material.color.setHex(isParetic ? 0xff4b63 : colorMap[key]); }
+          if(glowObjects[key]){ glowObjects[key].material.opacity = isParetic ? 1 : (emphasize ? .95 : .12) * blinkBoost; glowObjects[key].material.color.setHex(isParetic ? 0xff4b63 : colorMap[key]); }
+          if(muscleObjects[key].pulley){ muscleObjects[key].pulley.torus.material.opacity = emphasize ? .76 : .14; muscleObjects[key].pulley.sleeve.material.opacity = emphasize ? .12 : .03; }
+        });
+      }
+
+      function applyRotation(hDeg,vDeg,tDeg){ currentPose={ h:hDeg, v:vDeg, t:tDeg }; const qH=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), deg(hDeg)); const qV=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -deg(vDeg)); const qT=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1), deg(tDeg)); globeGroup.quaternion.identity().multiply(qH).multiply(qV).multiply(qT); Object.keys(defs).forEach(key=>{ updateTube(muscleObjects[key].tube, musclePathPoints(key), defs[key].baseRadius * (0.66 + 0.72*(currentActivity[key] || .1))); updateTube(muscleObjects[key].tendon, [defs[key].pulley.clone(), getInsertion(defs[key])], .20); }); updateStyle(); }
+      return { root, muscleGroup, pulleyGroup, insertionGroup, orbitGroup, axisGroup, applyRotation, setActivity:(activity)=>{ currentActivity=activity; applyRotation(currentPose.h,currentPose.v,currentPose.t); }, setHighlight:(code)=>{ highlight=code; updateStyle(); }, setBlink:(code,factor)=>{ blinkCode=code; blinkFactor=factor; updateStyle(); }, setParetic:(code)=>{ paretic=code; updateStyle(); }, localFromWorld:(worldPos)=> root.worldToLocal(worldPos.clone()), pose:()=>currentPose };
+    }
+
+    const sceneOffsetX = -24;
+    const rightEye = createEye('R', 19 + sceneOffsetX);
+    const leftEye = createEye('L', -19 + sceneOffsetX);
+    const grid = new THREE.GridHelper(140, 28, 0x274060, 0x1c2f49); grid.position.y=-28; grid.rotation.x=Math.PI/2; grid.material.transparent=true; grid.material.opacity=.16; scene.add(grid);
+
+    const targetMarker = new THREE.Group();
+    const tRing = new THREE.Mesh(new THREE.TorusGeometry(2.1, .08, 8, 48), new THREE.MeshBasicMaterial({ color:0x68d8ff, transparent:true, opacity:.9 }));
+    const tDot = new THREE.Mesh(new THREE.SphereGeometry(.28, 16, 12), new THREE.MeshBasicMaterial({ color:0xffffff }));
+    targetMarker.add(tRing,tDot); targetMarker.position.set(sceneOffsetX,0,70); scene.add(targetMarker); addLabel('注視目標', ()=> targetMarker.position.clone(), 'axis');
+
+    const rhSlider=document.getElementById('rhSlider'), rvSlider=document.getElementById('rvSlider'), lhSlider=document.getElementById('lhSlider'), lvSlider=document.getElementById('lvSlider');
+    const rPoseText=document.getElementById('rPoseText'), lPoseText=document.getElementById('lPoseText'), rvVal=document.getElementById('rvVal'), lvVal=document.getElementById('lvVal');
+    const scenarioSelect=document.getElementById('scenarioSelect'), scenarioNote=document.getElementById('scenarioNote'), detR=document.getElementById('detR'), detL=document.getElementById('detL');
+    const explain=document.getElementById('explain'), rStatus=document.getElementById('rStatus'), lStatus=document.getElementById('lStatus');
+    const barHost=document.getElementById('activityBars');
+    const uiPanel = document.getElementById('ui');
+    const uiToggle = document.getElementById('uiToggle');
+    const touchModePad = document.getElementById('touchModePad');
+    const touchTargetBtn = document.getElementById('touchTargetBtn');
+    const touchViewBtn = document.getElementById('touchViewBtn');
+    const isTouchLikeDevice = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+    let uiCollapsed = false;
+    let touchMode = 'target';
+    let selectedHighlight='ALL';
+    let desiredR={ h:0,v:0,t:0 }, desiredL={ h:0,v:0,t:0 };
+
+    const barEls={};
+    function buildBars(){ barHost.innerHTML=''; ['R','L'].forEach(side=>{ const col=document.createElement('div'); const title=document.createElement('div'); title.className='miniTitle'; title.textContent=side==='R' ? '右眼' : '左眼'; col.appendChild(title); muscles.forEach(m=>{ const wrap=document.createElement('div'); wrap.className='row'; const lbl=document.createElement('div'); lbl.className='barLabel'; lbl.innerHTML=`<span>${m}</span><span>0%</span>`; const val=lbl.querySelector('span:last-child'); const barWrap=document.createElement('div'); barWrap.className='barWrap'; const bar=document.createElement('div'); bar.className='bar'; bar.style.background=`linear-gradient(90deg,#203f74,#${colorMap[m].toString(16).padStart(6,'0')})`; barWrap.appendChild(bar); wrap.appendChild(lbl); wrap.appendChild(barWrap); col.appendChild(wrap); barEls[side+m]={ bar, val }; }); barHost.appendChild(col); }); }
+    buildBars();
+
+    function computeTorsion(side,h,v){ const s = side==='R' ? -1 : 1; return clamp((s * h * v) / 60, -15, 15); }
+    function computeActivity(side, pose){ const h=pose.h, v=pose.v, t=pose.t; const adduction=clamp(side==='R'?Math.max(0,-h)/45:Math.max(0,h)/45,0,1), abduction=clamp(side==='R'?Math.max(0,h)/45:Math.max(0,-h)/45,0,1), elevation=clamp(Math.max(0,v)/35,0,1), depression=clamp(Math.max(0,-v)/35,0,1), intorsion=clamp(Math.max(0,-t)/15,0,1), extorsion=clamp(Math.max(0,t)/15,0,1); return { MR:clamp(0.12+0.88*adduction,0.08,1), LR:clamp(0.12+0.88*abduction,0.08,1), SR:clamp(0.10+0.50*elevation+0.15*adduction+0.22*intorsion,0.08,1), IR:clamp(0.10+0.50*depression+0.15*adduction+0.22*extorsion,0.08,1), SO:clamp(0.10+0.38*depression+0.16*abduction+0.38*intorsion,0.08,1), IO:clamp(0.10+0.38*elevation+0.16*abduction+0.38*extorsion,0.08,1) }; }
+    function stateBadge(v, paretic=false){ if(paretic) return '<span class="pill paretic">麻痺疑い</span>'; if(v >= .65) return '<span class="pill contract">収縮</span>'; if(v <= .25) return '<span class="pill relax">弛緩</span>'; return '<span class="pill mid">中間</span>'; }
+    function updateBars(actR, actL){ muscles.forEach(m=>{ const rv=Math.round(actR[m]*100), lv=Math.round(actL[m]*100); barEls['R'+m].bar.style.width=rv+'%'; barEls['R'+m].val.textContent=rv+'%'; barEls['L'+m].bar.style.width=lv+'%'; barEls['L'+m].val.textContent=lv+'%'; }); }
+    function renderStatusTable(tbody, act, pareticCode){ tbody.innerHTML=''; muscles.forEach(m=>{ const tr=document.createElement('tr'); if(m===pareticCode) tr.style.background='rgba(255,84,108,.08)'; tr.innerHTML=`<td>${m}</td><td>${Math.round(act[m]*100)}%</td><td>${stateBadge(act[m], m===pareticCode)}</td>`; tbody.appendChild(tr); }); }
+    function scenarioText(){ switch(scenarioSelect.value){ case 'right6': return '右外転神経麻痺プリセット：右眼の外転を制限'; case 'left6': return '左外転神経麻痺プリセット：左眼の外転を制限'; case 'rightSO': return '右上斜筋麻痺プリセット：右眼の内下転・内旋を制限'; case 'leftSO': return '左上斜筋麻痺プリセット：左眼の内下転・内旋を制限'; case 'rightMR': return '右内直筋麻痺プリセット：右眼の内転を制限'; case 'leftMR': return '左内直筋麻痺プリセット：左眼の内転を制限'; default: return '正常モードです。'; } }
+    function applyScenario(side, desired){ const p={ ...desired }; switch(scenarioSelect.value){ case 'right6': if(side==='R'&&p.h>8) p.h=8; break; case 'left6': if(side==='L'&&p.h<-8) p.h=-8; break; case 'rightMR': if(side==='R'&&p.h<-8) p.h=-8; break; case 'leftMR': if(side==='L'&&p.h>8) p.h=8; break; case 'rightSO': if(side==='R' && ((p.h<0 && p.v<0) || p.t<0)){ p.v=Math.max(p.v,-5); p.t=Math.max(p.t,-2); } break; case 'leftSO': if(side==='L' && ((p.h>0 && p.v<0) || p.t<0)){ p.v=Math.max(p.v,-5); p.t=Math.max(p.t,-2); } break; } return p; }
+    function isAdducted(side, h){ return side==='R' ? h < 0 : h > 0; }
+    function horizontalPrime(side, desiredH){ if(Math.abs(desiredH) < 6) return null; const wantsAbduction = side==='R' ? desiredH > 0 : desiredH < 0; return wantsAbduction ? 'LR' : 'MR'; }
+    function verticalPrime(side, desired){ if(Math.abs(desired.v) < 5) return null; const ad = isAdducted(side, desired.h); if(desired.v > 0) return ad ? 'IO' : 'SR'; return ad ? 'SO' : 'IR'; }
+    function torsionPrime(desired){ if(Math.abs(desired.t) < 3) return null; return desired.t > 0 ? 'IO' : 'SO'; }
+    function detectParetic(side, desired, actual){
+      const hDef = Math.abs(desired.h - actual.h), vDef = Math.abs(desired.v - actual.v), tDef = Math.abs(desired.t - actual.t);
+      if(hDef > 6){ return horizontalPrime(side, desired.h); }
+      if(vDef > 5){ return verticalPrime(side, desired); }
+      if(tDef > 4){ return torsionPrime(desired); }
+      return null;
+    }
+    function poseText(p){ return `${p.h.toFixed(0)}° / ${p.v.toFixed(0)}° / ${p.t.toFixed(0)}°`; }
+
+    function applyCurrentState(){
+      const actualR = applyScenario('R', desiredR), actualL = applyScenario('L', desiredL);
+      rhSlider.value = actualR.h.toFixed(0); rvSlider.value = actualR.v.toFixed(0); lhSlider.value = actualL.h.toFixed(0); lvSlider.value = actualL.v.toFixed(0);
+      rvVal.textContent = actualR.v.toFixed(0) + '°'; lvVal.textContent = actualL.v.toFixed(0) + '°';
+      rPoseText.textContent = poseText(actualR); lPoseText.textContent = poseText(actualL);
+      rightEye.applyRotation(actualR.h, actualR.v, actualR.t); leftEye.applyRotation(actualL.h, actualL.v, actualL.t);
+      const actR = computeActivity('R', actualR), actL = computeActivity('L', actualL);
+      rightEye.setActivity(actR); leftEye.setActivity(actL);
+      rightEye.setHighlight(selectedHighlight); leftEye.setHighlight(selectedHighlight);
+      const parR = detectParetic('R', desiredR, actualR), parL = detectParetic('L', desiredL, actualL);
+      rightEye.setParetic(parR); leftEye.setParetic(parL);
+      detR.textContent = parR ? `${parR} 疑い` : '麻痺筋疑いなし'; detL.textContent = parL ? `${parL} 疑い` : '麻痺筋疑いなし';
+      scenarioNote.textContent = scenarioText();
+      updateBars(actR, actL); renderStatusTable(rStatus, actR, parR); renderStatusTable(lStatus, actL, parL);
+      explain.innerHTML = `右眼は <b>${detR.textContent}</b>、左眼は <b>${detL.textContent}</b>。注視方向に応じて回旋も自動付加され、収縮側は太く明るく、弛緩側は細く淡く表示しています。`;
+    }
+
+    function setGazeToTarget(worldTarget){
+      const localR = rightEye.localFromWorld(worldTarget.clone());
+      const localL = leftEye.localFromWorld(worldTarget.clone());
+      const hR = clamp(radToDeg(Math.atan2(localR.x, Math.max(10, localR.z))), -45, 45);
+      const vR = clamp(radToDeg(Math.atan2(localR.y, Math.max(10, localR.z))), -35, 35);
+      const hL = clamp(radToDeg(Math.atan2(localL.x, Math.max(10, localL.z))), -45, 45);
+      const vL = clamp(radToDeg(Math.atan2(localL.y, Math.max(10, localL.z))), -35, 35);
+      desiredR = { h:hR, v:vR, t:computeTorsion('R', hR, vR) };
+      desiredL = { h:hL, v:vL, t:computeTorsion('L', hL, vL) };
+      applyCurrentState();
+    }
+
+    function setFromSliders(){
+      desiredR = { h:Number(rhSlider.value), v:Number(rvSlider.value), t:computeTorsion('R', Number(rhSlider.value), Number(rvSlider.value)) };
+      desiredL = { h:Number(lhSlider.value), v:Number(lvSlider.value), t:computeTorsion('L', Number(lhSlider.value), Number(lvSlider.value)) };
+      applyCurrentState();
+    }
+
+    [rhSlider,rvSlider,lhSlider,lvSlider].forEach(sl=>sl.addEventListener('input', setFromSliders));
+    scenarioSelect.addEventListener('change', applyCurrentState);
+    document.getElementById('resetTarget').addEventListener('click', ()=>{ targetMarker.position.set(sceneOffsetX,0,70); setGazeToTarget(targetMarker.position.clone()); });
+    document.querySelectorAll('[data-pose]').forEach(btn=>btn.addEventListener('click', ()=>{ const poses={ right:new THREE.Vector3(35 + sceneOffsetX,0,70), left:new THREE.Vector3(-35 + sceneOffsetX,0,70), up:new THREE.Vector3(sceneOffsetX,28,70), down:new THREE.Vector3(sceneOffsetX,-28,70), near:new THREE.Vector3(sceneOffsetX,0,28) }; const p=poses[btn.dataset.pose]; targetMarker.position.copy(p); setGazeToTarget(targetMarker.position.clone()); }));
+
+    document.querySelectorAll('#muscleButtons [data-muscle]').forEach(btn=>btn.addEventListener('click', ()=>{ selectedHighlight=btn.dataset.muscle; blinkState={ muscle:selectedHighlight, until:performance.now()+3500 }; rightEye.setHighlight(selectedHighlight); leftEye.setHighlight(selectedHighlight); applyCurrentState(); }));
+    document.getElementById('showAll').addEventListener('click', ()=>{ selectedHighlight='ALL'; rightEye.setHighlight('ALL'); leftEye.setHighlight('ALL'); blinkState={ muscle:null, until:0 }; applyCurrentState(); });
+
+    const toggleMap = { showMuscles:[rightEye.muscleGroup,leftEye.muscleGroup], showPulleys:[rightEye.pulleyGroup,leftEye.pulleyGroup], showInsertions:[rightEye.insertionGroup,leftEye.insertionGroup], showOrbit:[rightEye.orbitGroup,leftEye.orbitGroup], showAxes:[rightEye.axisGroup,leftEye.axisGroup] };
+    Object.keys(toggleMap).forEach(id=>document.getElementById(id).addEventListener('change', e=>toggleMap[id].forEach(g=>g.visible=e.target.checked)));
+    document.getElementById('showLabels').addEventListener('change', ()=>{ labelLayer.style.display = document.getElementById('showLabels').checked ? 'block' : 'none'; });
+
+    function updateUiToggleVisual(){ uiToggle.textContent = uiCollapsed ? '▶' : '◀'; uiToggle.setAttribute('aria-expanded', String(!uiCollapsed)); uiToggle.title = uiCollapsed ? 'UIを開く' : 'UIを折りたたむ'; }
+    function updateTouchModeUi(){
+      if(isTouchLikeDevice) touchModePad.classList.add('show'); else touchModePad.classList.remove('show');
+      touchTargetBtn.classList.toggle('active', touchMode === 'target');
+      touchViewBtn.classList.toggle('active', touchMode === 'view');
+      if(isTouchLikeDevice){ controls.enabled = (touchMode === 'view'); } else { controls.enabled = true; }
+    }
+    function setTouchMode(mode){ touchMode = mode; updateTouchModeUi(); }
+    function toggleUiCollapsed(){ uiCollapsed = !uiCollapsed; uiPanel.classList.toggle('collapsed', uiCollapsed); if(uiCollapsed){ uiPanel.classList.remove('dragFade','dragShift'); } updateUiToggleVisual(); }
+    function setUiDraggingState(isDragging){ if(uiCollapsed){ uiPanel.classList.remove('dragFade','dragShift'); return; } uiPanel.classList.toggle('dragFade', isDragging); uiPanel.classList.toggle('dragShift', isDragging); }
+    uiToggle.addEventListener('click', toggleUiCollapsed);
+    touchTargetBtn.addEventListener('click', ()=> setTouchMode('target'));
+    touchViewBtn.addEventListener('click', ()=> setTouchMode('view'));
+    updateUiToggleVisual();
+    updateTouchModeUi();
+
+    const raycaster = new THREE.Raycaster();
+    const dragPlane = new THREE.Plane(new THREE.Vector3(0,0,-1), 70);
+    let draggingTarget = false;
+
+    function pointToTarget(event){
+      const rect = renderer.domElement.getBoundingClientRect();
+      const mouse = new THREE.Vector2(((event.clientX-rect.left)/rect.width)*2 - 1, -((event.clientY-rect.top)/rect.height)*2 + 1);
+      raycaster.setFromCamera(mouse, camera);
+      const pt = new THREE.Vector3();
+      if(raycaster.ray.intersectPlane(dragPlane, pt)){
+        pt.x = clamp(pt.x, -48 + sceneOffsetX, 48 + sceneOffsetX); pt.y = clamp(pt.y, -32, 32); pt.z = clamp(pt.z, 24, 80);
+        targetMarker.position.copy(pt); setGazeToTarget(pt);
+      }
+    }
+
+    renderer.domElement.addEventListener('pointerdown', e=>{
+      const isPrimaryAction = e.button === 0;
+      const isTouchPointer = e.pointerType === 'touch' || e.pointerType === 'pen';
+      if(!isPrimaryAction) return;
+      if(isTouchLikeDevice && touchMode === 'view' && isTouchPointer){ return; }
+      draggingTarget = true;
+      setUiDraggingState(true);
+      try{ renderer.domElement.setPointerCapture(e.pointerId); }catch(_e){}
+      pointToTarget(e);
+      e.preventDefault();
+    });
+    renderer.domElement.addEventListener('pointermove', e=>{
+      if(draggingTarget){ pointToTarget(e); e.preventDefault(); }
+    });
+    window.addEventListener('pointerup', e=>{ if(e.button===0 && draggingTarget){ draggingTarget=false; setUiDraggingState(false); try{ renderer.domElement.releasePointerCapture(e.pointerId); }catch(_e){} } });
+    renderer.domElement.addEventListener('contextmenu', e=>e.preventDefault());
+
+    function updateBlink(){ const now=performance.now(); const active=blinkState.muscle && now<blinkState.until; const factor=active ? (0.45 + 0.95*(0.5 + 0.5*Math.sin(now*0.018))) : 1; rightEye.setBlink(active ? blinkState.muscle : null, factor); leftEye.setBlink(active ? blinkState.muscle : null, factor); if(!active && blinkState.muscle){ blinkState.muscle=null; } }
+    function updateLabels(){ if(!document.getElementById('showLabels').checked) return; labelItems.forEach(item=>{ const s=projectToScreen(item.getter()); const visible=s.z>-1&&s.z<1; item.el.style.left=s.x+'px'; item.el.style.top=s.y+'px'; item.el.classList.toggle('hidden', !visible); }); }
+    function resize(){ camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); updateTouchModeUi(); }
+    window.addEventListener('resize', resize);
+    function animate(){ requestAnimationFrame(animate); controls.update(); targetMarker.rotation.z += 0.008; updateBlink(); updateLabels(); renderer.render(scene,camera); }
+
+    rightEye.setHighlight('ALL'); leftEye.setHighlight('ALL');
+    labelLayer.style.display='block';
+    targetMarker.position.set(sceneOffsetX,0,70); setGazeToTarget(targetMarker.position.clone());
+    animate();
+  </script>
+</body>
+</html>
